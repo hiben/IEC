@@ -1,0 +1,4 @@
+IEC
+===
+
+Inkscape Export Cleaner
