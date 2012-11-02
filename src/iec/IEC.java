@@ -28,6 +28,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -120,12 +121,21 @@ public class IEC {
 		return a == null ? null : a.getValue();
 	}
 
-	public static void listExports(Element svg, String format, List<Pattern> keepIds, List<Pattern> keepFiles) {
+	public static List<ExportItem> listExports(OutputStream os, Element svg, String format, List<Pattern> keepIds, List<Pattern> keepFiles, List<ExportItem> listOutput) {
 		String inkscapeNSURI = svg.getAttributeNS(
 				XMLConstants.XMLNS_ATTRIBUTE_NS_URI, inkscapeNS);
 
 		Queue<Element> elements = new LinkedList<Element>();
 		elements.add(svg);
+		
+		PrintStream ps = null;
+		if(os!=null) {
+			if(os instanceof PrintStream) {
+				ps = (PrintStream)os;
+			} else {
+				ps = new PrintStream(os);
+			}
+		}
 
 		while (!elements.isEmpty()) {
 			Element e = elements.remove();
@@ -149,18 +159,25 @@ public class IEC {
 						avalue(exportFileAttr), avalue(exportXDPIAttr),
 						avalue(exportYDPIAttr));
 				
-				System.out.print(formatExportItem(format, ei));
+				if(listOutput!=null)
+					listOutput.add(ei);
 				
-				if(ei.id != null && keepIds != null && keepIds.size()>0) {
-					System.out.format(matchFormatId, matchesPatternList(keepIds, ei.id) ? matchFormatYes : matchFormatNo);
+				if(ps!=null) {
+					ps.print(formatExportItem(format, ei));
+
+					if(ei.id != null && keepIds != null && keepIds.size()>0) {
+						ps.format(matchFormatId, matchesPatternList(keepIds, ei.id) ? matchFormatYes : matchFormatNo);
+					}
+					if(ei.filename != null && keepFiles != null && keepFiles.size()>0) {
+						ps.format(matchFormatFile, matchesPatternList(keepFiles, ei.filename) ? matchFormatYes : matchFormatNo);
+					}
+
+					ps.println();
 				}
-				if(ei.filename != null && keepFiles != null && keepFiles.size()>0) {
-					System.out.format(matchFormatFile, matchesPatternList(keepFiles, ei.filename) ? matchFormatYes : matchFormatNo);
-				}
-				
-				System.out.println();
 			}
 		}
+		
+		return listOutput;
 	}
 
 	public static void pruneExports(Element svg, List<Pattern> keepIds, List<Pattern> keepFiles) {
@@ -537,7 +554,7 @@ public class IEC {
 			
 			if(doList) {
 				System.out.println("List of exports:");
-				listExports(base, listFormat, keepIds, keepFiles);
+				listExports(System.out, base, listFormat, keepIds, keepFiles, null);
 			}
 
 			if(doPrune) {
@@ -551,8 +568,14 @@ public class IEC {
 
 				ByteArrayInputStream bis = new ByteArrayInputStream(
 						baos.toByteArray());
+				
+				baos.reset();
 
-				writeNiceXML(bis, "-".equals(outfile) ? System.out : new FileOutputStream(outfile));
+				// write xml to memory first to not overwrite output on xml error
+				writeNiceXML(bis, baos);
+				
+				// real write
+				("-".equals(outfile) ? System.out : new FileOutputStream(outfile)).write(baos.toByteArray());
 			}
 
 		} catch (Exception e) {
