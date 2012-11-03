@@ -24,13 +24,15 @@ package iec;
 
 import iec.IEC.ExportItem;
 
-
 import java.awt.Component;
 import java.awt.EventQueue;
 import java.awt.GraphicsDevice;
 import java.awt.MouseInfo;
+import java.awt.Point;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
@@ -51,9 +53,11 @@ import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.KeyStroke;
+import javax.swing.ListSelectionModel;
 import javax.swing.SpringLayout;
 import javax.swing.event.TableModelEvent;
 import javax.swing.event.TableModelListener;
@@ -71,10 +75,19 @@ public class IECUI implements Runnable {
 	
 	private static final String acOpen = "open";
 	private static final String acSave = "save";
-	private static final String acExit = "exit";
+	private static final String acQuit = "quit";
 
+	private static final String acClearSelection = "clear";
+	private static final String acInvertSelection = "invert";
+	private static final String acSelectAll = "selectall";
+	private static final String acKeepSelected = "keepselected";
+	private static final String acRemoveSelected = "removeselected";
+	private static final String acToggleSelected = "toggleselected";
+	
 	private static final String keyFileLabel = "file-label";
 	private static final String keyOpenDialog = "open-dialog";
+	private static final String keyTable = "table";
+	private static final String keyPopup = "popup";
 	
 	private String [] args;
 	private JFrame frame;
@@ -122,6 +135,12 @@ public class IECUI implements Runnable {
 			keepMap.clear();
 			for(TableModelListener l : listener) {
 				l.tableChanged(new TableModelEvent(this));
+			}
+		}
+		
+		public void dataKeepChange() {
+			for(TableModelListener l : listener) {
+				l.tableChanged(new TableModelEvent(this, 0, items.size()-1, colKeep));
 			}
 		}
 		
@@ -297,6 +316,7 @@ public class IECUI implements Runnable {
 			jfc = new JFileChooser(new File("."));
 			jfc.setAcceptAllFileFilterUsed(true);
 			jfc.addChoosableFileFilter(svgFileFilter);
+			jfc.setFileFilter(svgFileFilter);
 			putGlobal(keyOpenDialog, jfc);
 		}
 		
@@ -347,7 +367,7 @@ public class IECUI implements Runnable {
 		@Override
 		public void actionPerformed(ActionEvent e) {
 			do {
-				if(acExit.equals(e.getActionCommand())) {
+				if(acQuit.equals(e.getActionCommand())) {
 					frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
 					break;
 				}
@@ -358,6 +378,126 @@ public class IECUI implements Runnable {
 				}
 				
 				if(acSave.equals(e.getActionCommand())) {
+					break;
+				}
+			} while(false);
+		}
+	};
+	
+	private AbstractAction markSelectedKeepAction = new AbstractAction() {
+		private static final long serialVersionUID = 1L;
+		
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			JTable tab = getGlobal(keyTable, JTable.class);
+			int [] selrows = tab.getSelectedRows();
+			for(int i=0; i<selrows.length; i++) {
+				int mrow = tab.convertRowIndexToModel(selrows[i]);
+				exportItemTableModel.keepMap.put(mrow, Boolean.TRUE);
+			}
+			exportItemTableModel.dataKeepChange();
+		}
+	};
+
+	private AbstractAction markSelectedRemoveAction = new AbstractAction() {
+		private static final long serialVersionUID = 1L;
+		
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			JTable tab = getGlobal(keyTable, JTable.class);
+			int [] selrows = tab.getSelectedRows();
+			for(int i=0; i<selrows.length; i++) {
+				int mrow = tab.convertRowIndexToModel(selrows[i]);
+				exportItemTableModel.keepMap.put(mrow, Boolean.FALSE);
+			}
+			exportItemTableModel.dataKeepChange();
+		}
+	};
+	
+	private AbstractAction clearSelectionAction = new AbstractAction() {
+		private static final long serialVersionUID = 1L;
+		
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			JTable tab = getGlobal(keyTable, JTable.class);
+			ListSelectionModel selm = tab.getSelectionModel();
+			selm.clearSelection();
+		}
+	};
+	
+	private AbstractAction selectAllAction = new AbstractAction() {
+		private static final long serialVersionUID = 1L;
+		
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			JTable tab = getGlobal(keyTable, JTable.class);
+			ListSelectionModel selm = tab.getSelectionModel();
+			selm.setSelectionInterval(0, exportItemTableModel.getRowCount()-1);
+		}
+	};
+	
+	private AbstractAction invertSelectionAction = new AbstractAction() {
+		private static final long serialVersionUID = 1L;
+		
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			JTable tab = getGlobal(keyTable, JTable.class);
+			ListSelectionModel selm = tab.getSelectionModel();
+			selm.setValueIsAdjusting(true);
+			for(int i=0; i<exportItemTableModel.getRowCount(); i++) {
+				if(selm.isSelectedIndex(i)) {
+					selm.removeSelectionInterval(i, i);
+				} else {
+					selm.addSelectionInterval(i, i);
+				}
+			}
+			selm.setValueIsAdjusting(false);
+		}
+	};
+	
+	private AbstractAction toggleKeepSelectedAction = new AbstractAction() {
+		private static final long serialVersionUID = 1L;
+		
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			JTable tab = getGlobal(keyTable, JTable.class);
+			int [] selrows = tab.getSelectedRows();
+			for(int i=0; i<selrows.length; i++) {
+				int mrow = tab.convertRowIndexToModel(selrows[i]);
+				exportItemTableModel.keepMap.put(mrow, def(exportItemTableModel.keepMap.get(mrow), Boolean.FALSE) ? Boolean.FALSE : Boolean.TRUE);
+			}
+			exportItemTableModel.dataKeepChange();
+		}
+	};
+	
+	private AbstractAction tablePopupAction = new AbstractAction() {
+		private static final long serialVersionUID = 1L;
+		
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			do {
+				if(acSelectAll.equals(e.getActionCommand())) {
+					selectAllAction.actionPerformed(e);
+					break;
+				}
+				if(acClearSelection.equals(e.getActionCommand())) {
+					clearSelectionAction.actionPerformed(e);
+					break;
+				}
+				if(acInvertSelection.equals(e.getActionCommand())) {
+					invertSelectionAction.actionPerformed(e);
+					break;
+				}
+				if(acToggleSelected.equals(e.getActionCommand())) {
+					toggleKeepSelectedAction.actionPerformed(e);
+					break;
+				}
+				if(acKeepSelected.equals(e.getActionCommand()) || acRemoveSelected.equals(e.getActionCommand())) {
+					if(acKeepSelected.equals(e.getActionCommand())) {
+						markSelectedKeepAction.actionPerformed(e);
+					} else {
+						markSelectedRemoveAction.actionPerformed(e);
+					}
 					break;
 				}
 			} while(false);
@@ -393,7 +533,7 @@ public class IECUI implements Runnable {
 		actionMenu.add(withKeyStroke(setACAndText(new JMenuItem(menuAction), acOpen, "Open SVG", 'o'), KeyStroke.getKeyStroke(KeyEvent.VK_O, KeyEvent.CTRL_DOWN_MASK)));
 		actionMenu.add(withKeyStroke(setACAndText(new JMenuItem(menuAction), acSave, "Save SVG", 's'), KeyStroke.getKeyStroke(KeyEvent.VK_S, KeyEvent.CTRL_DOWN_MASK)));
 		actionMenu.addSeparator();
-		actionMenu.add(withKeyStroke(setACAndText(new JMenuItem(menuAction), acExit, "Exit", 'x'), KeyStroke.getKeyStroke(KeyEvent.VK_X, KeyEvent.CTRL_DOWN_MASK)));
+		actionMenu.add(withKeyStroke(setACAndText(new JMenuItem(menuAction), acQuit, "Quit", 'Q'), KeyStroke.getKeyStroke(KeyEvent.VK_Q, KeyEvent.CTRL_DOWN_MASK)));
 		
 		menuBar.add(actionMenu);
 		
@@ -415,9 +555,69 @@ public class IECUI implements Runnable {
 		tab.setFillsViewportHeight(true);
 		tab.setAutoCreateRowSorter(true);
 		
+		putGlobal(keyTable, tab);
+		
 		JScrollPane tableScroll = new JScrollPane(tab);
 
 		uipanel.add(tableScroll);
+		
+		JPopupMenu tablePopup = new JPopupMenu();
+		tablePopup.add(setACAndText(new JMenuItem(tablePopupAction), acSelectAll, "Select All", 'a'));
+		tablePopup.add(setACAndText(new JMenuItem(tablePopupAction), acInvertSelection, "Invert Selection", 'I'));
+		tablePopup.add(setACAndText(new JMenuItem(tablePopupAction), acClearSelection, "Select None", 'N'));
+		tablePopup.add(setACAndText(new JMenuItem(tablePopupAction), acKeepSelected, "Keep Selected", 'K'));
+		tablePopup.add(setACAndText(new JMenuItem(tablePopupAction), acRemoveSelected, "Remove Selected", 'R'));
+		tablePopup.add(setACAndText(new JMenuItem(tablePopupAction), acToggleSelected, "Toggle Selected", 'T'));
+
+		// select all is a standard action
+		
+		tab.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_I, KeyEvent.CTRL_DOWN_MASK), acInvertSelection);
+		tab.getActionMap().put(acInvertSelection, invertSelectionAction);
+
+		tab.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_N, KeyEvent.CTRL_DOWN_MASK), acClearSelection);
+		tab.getActionMap().put(acClearSelection, clearSelectionAction);
+		
+		tab.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_K, KeyEvent.CTRL_DOWN_MASK), acKeepSelected);
+		tab.getActionMap().put(acKeepSelected, markSelectedKeepAction);
+
+		tab.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_R, KeyEvent.CTRL_DOWN_MASK), acRemoveSelected);
+		tab.getActionMap().put(acRemoveSelected, markSelectedRemoveAction);
+
+		tab.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_T, KeyEvent.CTRL_DOWN_MASK), acToggleSelected);
+		tab.getActionMap().put(acToggleSelected, toggleKeepSelectedAction);
+		
+		putGlobal(keyPopup, tablePopup);
+		
+		tab.addMouseListener(new MouseAdapter() {
+			
+			private void showPopup(MouseEvent e) {
+				JPopupMenu pop = getGlobal(keyPopup, JPopupMenu.class);
+				Point mshow = e.getComponent().getMousePosition();
+				
+				pop.show(e.getComponent(), mshow.x, mshow.y);
+			}
+			
+			@Override
+			public void mouseReleased(MouseEvent e) {
+				if(e.isPopupTrigger()) {
+					showPopup(e);
+				}
+			}
+			
+			@Override
+			public void mousePressed(MouseEvent e) {
+				if(e.isPopupTrigger()) {
+					showPopup(e);
+				}
+			}
+			
+			@Override
+			public void mouseClicked(MouseEvent e) {
+				if(e.isPopupTrigger()) {
+					showPopup(e);
+				}
+			}
+		});
 		
 		sl.putConstraint(SpringLayout.WEST, lFileLabel, 5, SpringLayout.WEST, uipanel);
 		sl.putConstraint(SpringLayout.NORTH, lFileLabel, 5, SpringLayout.NORTH, uipanel);
