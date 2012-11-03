@@ -36,7 +36,6 @@ import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -66,10 +65,8 @@ import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableModel;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
 
 import org.w3c.dom.Document;
-import org.xml.sax.SAXException;
 
 public class IECUI implements Runnable {
 	
@@ -86,8 +83,11 @@ public class IECUI implements Runnable {
 	
 	private static final String keyFileLabel = "file-label";
 	private static final String keyOpenDialog = "open-dialog";
+	private static final String keySaveDialog = "save-dialog";
 	private static final String keyTable = "table";
 	private static final String keyPopup = "popup";
+
+	private static final String keyDoc = "document";
 	
 	private String [] args;
 	private JFrame frame;
@@ -331,6 +331,35 @@ public class IECUI implements Runnable {
 			openSVG(f);
 		}
 	}
+	
+	private void saveSVGDialog() {
+		JFileChooser jfc = getGlobal(keySaveDialog, JFileChooser.class);
+		
+		if(jfc == null) {
+			JFileChooser lchooser = getGlobal(keyOpenDialog, JFileChooser.class);
+			jfc = new JFileChooser(lchooser == null ? new File(".") : lchooser.getCurrentDirectory());
+			jfc.setAcceptAllFileFilterUsed(true);
+			jfc.addChoosableFileFilter(svgFileFilter);
+			jfc.setFileFilter(svgFileFilter);
+			putGlobal(keySaveDialog, jfc);
+		}
+		
+		while(jfc.showSaveDialog(frame) == JFileChooser.APPROVE_OPTION) {
+			File f = jfc.getSelectedFile();
+			
+			if(f.exists()) {
+				int r  = JOptionPane.showConfirmDialog(frame, String.format("File '%s' exists. Overwrite ?", f.getName()), "Overwrite ?", JOptionPane.YES_NO_CANCEL_OPTION);
+				
+				if(r == JOptionPane.NO_OPTION)
+					continue;
+				
+				if(r != JOptionPane.YES_OPTION)
+					break;
+			}
+			
+			saveSVGFile(f);
+		}
+	}
 
 	private boolean openSVG(File f) {
 
@@ -341,6 +370,8 @@ public class IECUI implements Runnable {
 			DocumentBuilder db = dbf.newDocumentBuilder();
 			Document d = db.parse(f);
 			
+			putGlobal(keyDoc, d);
+			
 			exportItemTableModel.getItems().clear();
 			IEC.listExports(System.out, d.getDocumentElement(), IEC.defaultExportItemFormat, null, null, exportItemTableModel.getItems());
 			exportItemTableModel.updateCells();
@@ -350,14 +381,14 @@ public class IECUI implements Runnable {
 			fileLabel.setToolTipText(f.getPath());
 
 			return true;
-		} catch (ParserConfigurationException e) {
-			e.printStackTrace();
-		} catch (SAXException e) {
-			e.printStackTrace();
-		} catch (IOException e) {
-			JOptionPane.showMessageDialog(frame, String.format("There was an error while reading '%s'!\n"+e.getClass().getName() + ": " + e.getMessage(), f.getPath()), "IO-Error!", JOptionPane.ERROR_MESSAGE);
+		} catch(Exception e) {
+			JOptionPane.showMessageDialog(frame, String.format("There was an error while reading '%s'!\n"+e.getClass().getName() + ": " + e.getMessage(), f.getPath()), "Error!", JOptionPane.ERROR_MESSAGE);
 		}
 
+		return false;
+	}
+	
+	private boolean saveSVGFile(File f) {
 		return false;
 	}
 
@@ -378,6 +409,11 @@ public class IECUI implements Runnable {
 				}
 				
 				if(acSave.equals(e.getActionCommand())) {
+					if(getGlobal(keyDoc, Document.class) != null) {
+						saveSVGDialog();
+					} else {
+						JOptionPane.showMessageDialog(frame, "Nothing is currently loaded...", "Nothing to Save!", JOptionPane.INFORMATION_MESSAGE);
+					}
 					break;
 				}
 			} while(false);
