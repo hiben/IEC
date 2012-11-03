@@ -24,6 +24,8 @@ package iec;
 
 import iec.IEC.ExportItem;
 
+
+import java.awt.Component;
 import java.awt.EventQueue;
 import java.awt.GraphicsDevice;
 import java.awt.MouseInfo;
@@ -40,6 +42,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 import javax.swing.AbstractAction;
+import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -55,6 +58,7 @@ import javax.swing.SpringLayout;
 import javax.swing.event.TableModelEvent;
 import javax.swing.event.TableModelListener;
 import javax.swing.filechooser.FileFilter;
+import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableModel;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -95,10 +99,18 @@ public class IECUI implements Runnable {
 			return def;
 		return a;
 	}
+	
+	private static final int colID = 0;
+	private static final int colFilename = 1;
+	private static final int colDPIX = 2;
+	private static final int colDPIY = 3;
+	private static final int colTag = 4;
+	private static final int colKeep = 5;
 
 	private class ExportItemTableModel implements TableModel {
 		
 		private List<ExportItem> items = new ArrayList<ExportItem>();
+		private Map<Integer, Boolean> keepMap = new TreeMap<Integer, Boolean>();
 		
 		private List<TableModelListener> listener = new LinkedList<TableModelListener>();
 		
@@ -107,6 +119,7 @@ public class IECUI implements Runnable {
 		}
 		
 		public void updateCells() {
+			keepMap.clear();
 			for(TableModelListener l : listener) {
 				l.tableChanged(new TableModelEvent(this));
 			}
@@ -114,7 +127,9 @@ public class IECUI implements Runnable {
 		
 		@Override
 		public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
-			return;
+			if(columnIndex==colKeep && aValue instanceof Boolean) {
+				keepMap.put(rowIndex, (Boolean)aValue);
+			}
 		}
 		
 		@Override
@@ -124,7 +139,7 @@ public class IECUI implements Runnable {
 		
 		@Override
 		public boolean isCellEditable(int rowIndex, int columnIndex) {
-			return false;
+			return columnIndex == colKeep;
 		}
 		
 		@Override
@@ -135,16 +150,18 @@ public class IECUI implements Runnable {
 			ExportItem ei = items.get(rowIndex);
 			
 			switch(columnIndex) {
-			case 0:
+			case colID:
 				return def(ei.id, "<no-id>");
-			case 1:
+			case colFilename:
 				return def(ei.filename, "<no-filename>");
-			case 2:
+			case colDPIX:
 				return def(ei.xdpi, "<no-x-dpi>");
-			case 3:
+			case colDPIY:
 				return def(ei.ydpi, "<no-y-dpi>");
-			case 4:
+			case colTag:
 				return def(ei.tag, "<no-tag>");
+			case colKeep:
+				return def(keepMap.get(rowIndex), Boolean.FALSE);
 			}
 			
 			return null;
@@ -158,27 +175,32 @@ public class IECUI implements Runnable {
 		@Override
 		public String getColumnName(int columnIndex) {
 			switch(columnIndex) {
-			case 0:
+			case colID:
 				return "Id";
-			case 1:
+			case colFilename:
 				return "Filename";
-			case 2:
+			case colDPIX:
 				return "DPI (x)";
-			case 3:
+			case colDPIY:
 				return "DPI (y)";
-			case 4:
+			case colTag:
 				return "Tag";
+			case colKeep:
+				return "Keep";
 			}
 			return null;
 		}
 		
 		@Override
 		public int getColumnCount() {
-			return 5;
+			return 6;
 		}
 		
 		@Override
 		public Class<?> getColumnClass(int columnIndex) {
+			if(columnIndex==colKeep)
+				return Boolean.class;
+			
 			return String.class;
 		}
 		
@@ -189,6 +211,45 @@ public class IECUI implements Runnable {
 	};
 	
 	private ExportItemTableModel exportItemTableModel = new ExportItemTableModel();
+	
+	private class ExportItemTableCellRenderer implements TableCellRenderer {
+		
+		private TableCellRenderer defRender;
+		
+		public ExportItemTableCellRenderer(JTable tab) {
+			defRender = tab.getDefaultRenderer(String.class);
+		}
+		
+		@Override
+		public Component getTableCellRendererComponent(JTable table,
+				Object value, boolean isSelected, boolean hasFocus, int row,
+				int column) {
+			Component c = defRender.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+			
+			if(c instanceof JComponent) {
+				JComponent jc = (JComponent)c;
+				
+				int mcol = table.convertColumnIndexToModel(column);
+				int mrow = table.convertRowIndexToModel(row);
+				
+				if(mcol == colFilename) {
+					Object v = exportItemTableModel.getValueAt(mrow, mcol);
+					
+					if(v instanceof String) {
+						jc.setToolTipText((String)v);
+					} else {
+						jc.setToolTipText(null);
+					}
+				} else {
+					jc.setToolTipText(null);
+				}				
+			}
+			
+			return c;
+		}
+		
+		
+	}
 	
 	public IECUI(String [] args) {
 		this.args = args;
@@ -260,11 +321,8 @@ public class IECUI implements Runnable {
 			DocumentBuilder db = dbf.newDocumentBuilder();
 			Document d = db.parse(f);
 			
-			System.out.println("Listing exports...");
 			exportItemTableModel.getItems().clear();
 			IEC.listExports(System.out, d.getDocumentElement(), IEC.defaultExportItemFormat, null, null, exportItemTableModel.getItems());
-			
-			System.out.println("Update...");
 			exportItemTableModel.updateCells();
 
 			JLabel fileLabel = getGlobal(keyFileLabel, JLabel.class);
@@ -351,8 +409,11 @@ public class IECUI implements Runnable {
 		uipanel.add(lFileLabel);
 		
 		JTable tab = new JTable(exportItemTableModel);
+		tab.setDefaultRenderer(String.class, new ExportItemTableCellRenderer(tab));
+		
 		tab.setAutoCreateColumnsFromModel(true);
 		tab.setFillsViewportHeight(true);
+		tab.setAutoCreateRowSorter(true);
 		
 		JScrollPane tableScroll = new JScrollPane(tab);
 
