@@ -1,5 +1,6 @@
 /*
 IEC - Copyright (c) 2012 Hendrik Iben - hendrik [dot] iben <at> googlemail [dot] com
+
 Inkscape Export Cleaner - get's rid of export definitions in Inkscape documents
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -23,6 +24,8 @@ SOFTWARE.
 package iec;
 
 import iec.IEC.ExportItem;
+import iec.IEC.ItemKeepMatch;
+
 
 import java.awt.Component;
 import java.awt.EventQueue;
@@ -35,7 +38,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -65,6 +71,10 @@ import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableModel;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
 
 import org.w3c.dom.Document;
 
@@ -127,27 +137,52 @@ public class IECUI implements Runnable {
 		
 		private List<TableModelListener> listener = new LinkedList<TableModelListener>();
 		
-		public List<ExportItem> getItems() {
-			return items;
-		}
-		
-		public void updateCells() {
-			keepMap.clear();
+		public void setItems(List<ExportItem> i) {
+			synchronized(items) {
+				keepMap.clear();
+				items.clear();
+				if(i!=null)
+					items.addAll(i);
+			}
+			
 			for(TableModelListener l : listener) {
-				l.tableChanged(new TableModelEvent(this));
+				l.tableChanged(new TableModelEvent(this, TableModelEvent.HEADER_ROW));
 			}
 		}
 		
+		public List<String> getKeepIds() {
+			LinkedList<String> ids = new LinkedList<String>();
+
+			synchronized (items) {
+				for(int i=0; i<items.size(); i++) {
+					if(def(keepMap.get(i), Boolean.FALSE)) {
+						String id = items.get(i).id;
+						if(id!=null && id.trim().length()!=0) {
+							ids.add(id.trim());
+						}
+					}
+				}
+			}
+			
+			return ids;
+		}
+		
 		public void dataKeepChange() {
+			int range;
+			synchronized (items) {
+				range = items.size()-1;
+			}
 			for(TableModelListener l : listener) {
-				l.tableChanged(new TableModelEvent(this, 0, items.size()-1, colKeep));
+				l.tableChanged(new TableModelEvent(this, 0, range, colKeep));
 			}
 		}
 		
 		@Override
 		public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
 			if(columnIndex==colKeep && aValue instanceof Boolean) {
-				keepMap.put(rowIndex, (Boolean)aValue);
+				synchronized (items) {
+					keepMap.put(rowIndex, (Boolean)aValue);
+				}
 			}
 		}
 		
@@ -163,10 +198,17 @@ public class IECUI implements Runnable {
 		
 		@Override
 		public Object getValueAt(int rowIndex, int columnIndex) {
-			if(rowIndex<0 ||rowIndex > items.size())
-				return null;
+			ExportItem ei;
 			
-			ExportItem ei = items.get(rowIndex);
+			synchronized (items) {
+				if(rowIndex<0 ||rowIndex > items.size())
+					return null;
+				
+				ei = items.get(rowIndex);
+			}
+			
+			if(ei==null)
+				return null;
 			
 			switch(columnIndex) {
 			case colID:
@@ -180,7 +222,9 @@ public class IECUI implements Runnable {
 			case colTag:
 				return def(ei.tag, "<no-tag>");
 			case colKeep:
-				return def(keepMap.get(rowIndex), Boolean.FALSE);
+				synchronized (items) {
+					return def(keepMap.get(rowIndex), Boolean.FALSE);
+				}
 			}
 			
 			return null;
@@ -188,7 +232,9 @@ public class IECUI implements Runnable {
 		
 		@Override
 		public int getRowCount() {
-			return items.size();
+			synchronized (items) {
+				return items.size();
+			}
 		}
 		
 		@Override
@@ -358,6 +404,8 @@ public class IECUI implements Runnable {
 			}
 			
 			saveSVGFile(f);
+			
+			break;
 		}
 	}
 
@@ -372,9 +420,10 @@ public class IECUI implements Runnable {
 			
 			putGlobal(keyDoc, d);
 			
-			exportItemTableModel.getItems().clear();
-			IEC.listExports(System.out, d.getDocumentElement(), IEC.defaultExportItemFormat, null, null, exportItemTableModel.getItems());
-			exportItemTableModel.updateCells();
+			List<ExportItem> newItems = new LinkedList<ExportItem>();
+			IEC.listExports(null, d.getDocumentElement(), IEC.defaultExportItemFormat, null, newItems);
+			
+			exportItemTableModel.setItems(newItems);
 
 			JLabel fileLabel = getGlobal(keyFileLabel, JLabel.class);
 			fileLabel.setText(f.getName());
@@ -388,8 +437,73 @@ public class IECUI implements Runnable {
 		return false;
 	}
 	
+	public static class KeepById implements ItemKeepMatch {
+		
+		private List<String> ids;
+		
+		public KeepById(List<String> ids) {
+			this.ids = ids;
+		}
+
+		@Override
+		public int keepResult(ExportItem ei) {
+			return ( ei.id!=null && ids.contains(ei.id) ) ? ItemKeepMatch.KEEP_MATCH_ID : ItemKeepMatch.KEEP_MATCH_NONE;
+		}
+
+		@Override
+		public boolean checksId() {
+			return ids!=null && ids.size()>0;
+		}
+
+		@Override
+		public boolean checksFilename() {
+			return false;
+		}
+		
+	}
+	
 	private boolean saveSVGFile(File f) {
-		return false;
+		Document d = getGlobal(keyDoc, Document.class);
+		
+		if(d==null)
+			return false;
+		
+		Document clonedDoc = (Document)d.cloneNode(true);
+		
+		KeepById kbi = new KeepById(exportItemTableModel.getKeepIds());
+
+		IEC.pruneExports(clonedDoc.getDocumentElement(), kbi);
+		ByteArrayOutputStream baos = new ByteArrayOutputStream();
+
+		try {
+
+			Transformer t = TransformerFactory.newInstance().newTransformer();
+			StreamResult sr = new StreamResult(baos);
+			t.transform(new DOMSource(clonedDoc), sr);
+
+			ByteArrayInputStream bis = new ByteArrayInputStream(
+					baos.toByteArray());
+
+			baos.reset();
+
+			IEC.writeNiceXML(bis, baos);
+		} catch (Exception e) {
+			JOptionPane.showMessageDialog(frame, "There was an error while cleaning the XML!\nNothing was written to disk.\n" + e.getClass().getName() + ": " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+			return false;
+		}
+		
+		try {
+			FileOutputStream fos = new FileOutputStream(f);
+			
+			fos.write(baos.toByteArray());
+			
+			fos.close();
+		} catch (Exception e) {
+			JOptionPane.showMessageDialog(frame, "There was an error writing the cleaned XML!\nOutput file could be corrupt!\n" + e.getClass().getName() + ": " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+			return false;
+		}
+		
+		return true;
 	}
 
 	private AbstractAction menuAction = new AbstractAction() {

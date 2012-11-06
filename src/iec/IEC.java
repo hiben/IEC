@@ -120,8 +120,56 @@ public class IEC {
 	public static String avalue(Attr a) {
 		return a == null ? null : a.getValue();
 	}
+	
+	public static interface ItemKeepMatch {
+		final int KEEP_MATCH_NONE = 0;
+		final int KEEP_MATCH_ID = 1;
+		final int KEEP_MATCH_FILENAME = 2;
+		
+		public int keepResult(ExportItem ei);
+		
+		public boolean checksId();
+		public boolean checksFilename();
+	}
+	
+	public static class KeepByPattern implements ItemKeepMatch {
 
-	public static List<ExportItem> listExports(OutputStream os, Element svg, String format, List<Pattern> keepIds, List<Pattern> keepFiles, List<ExportItem> listOutput) {
+		private List<Pattern> keepIds = null;
+		private List<Pattern> keepFiles = null;
+		
+		public KeepByPattern(List<Pattern> keepIds, List<Pattern> keepFiles) {
+			this.keepIds = keepIds;
+			this.keepFiles = keepFiles;
+		}
+		
+		public boolean checksId() {
+			return keepIds!=null || keepIds.size()>0;
+		}
+		
+		public boolean checksFilename() {
+			return keepFiles!=null || keepFiles.size()>0;
+		}
+		
+		public int keepResult(ExportItem ei) {
+			int keep_match = KEEP_MATCH_NONE;
+			
+			if(ei.id!=null && keepIds!=null && keepIds.size()>0) {
+				if(matchesPatternList(keepIds, ei.id)) {
+					keep_match |= KEEP_MATCH_ID;
+				}
+			}
+			
+			if(ei.filename!=null && keepFiles!=null && keepFiles.size()>0) {
+				if(matchesPatternList(keepFiles, ei.filename)) {
+					keep_match |= KEEP_MATCH_FILENAME;
+				}
+			}
+			
+			return keep_match;
+		}
+	}
+
+	public static List<ExportItem> listExports(OutputStream os, Element svg, String format, ItemKeepMatch ikm, List<ExportItem> listOutput) {
 		String inkscapeNSURI = svg.getAttributeNS(
 				XMLConstants.XMLNS_ATTRIBUTE_NS_URI, inkscapeNS);
 
@@ -136,6 +184,9 @@ public class IEC {
 				ps = new PrintStream(os);
 			}
 		}
+		
+		boolean checksId = ikm != null ? ikm.checksId() : false;
+		boolean checksFilename = ikm != null ? ikm.checksFilename() : false;
 
 		while (!elements.isEmpty()) {
 			Element e = elements.remove();
@@ -164,12 +215,16 @@ public class IEC {
 				
 				if(ps!=null) {
 					ps.print(formatExportItem(format, ei));
-
-					if(ei.id != null && keepIds != null && keepIds.size()>0) {
-						ps.format(matchFormatId, matchesPatternList(keepIds, ei.id) ? matchFormatYes : matchFormatNo);
-					}
-					if(ei.filename != null && keepFiles != null && keepFiles.size()>0) {
-						ps.format(matchFormatFile, matchesPatternList(keepFiles, ei.filename) ? matchFormatYes : matchFormatNo);
+					
+					if(ikm!=null) {
+						int res = ikm.keepResult(ei);
+					
+						if(checksId && ei.id != null) {
+							ps.format(matchFormatId, ((res & ItemKeepMatch.KEEP_MATCH_ID)!=0) ? matchFormatYes : matchFormatNo);
+						}
+						if(checksFilename && ei.filename != null) {
+							ps.format(matchFormatFile, ((res & ItemKeepMatch.KEEP_MATCH_FILENAME)!=0) ? matchFormatYes : matchFormatNo);
+						}
 					}
 
 					ps.println();
@@ -179,8 +234,14 @@ public class IEC {
 		
 		return listOutput;
 	}
+	
+	public static String attrVal(Attr a, String def) {
+		if(a==null)
+			return def;
+		return a.getValue();
+	}
 
-	public static void pruneExports(Element svg, List<Pattern> keepIds, List<Pattern> keepFiles) {
+	public static void pruneExports(Element svg, ItemKeepMatch ikm) {
 		String inkscapeNSURI = svg.getAttributeNS(
 				XMLConstants.XMLNS_ATTRIBUTE_NS_URI, inkscapeNS);
 
@@ -205,21 +266,12 @@ public class IEC {
 			
 			boolean keep = false;
 			
-			if(keepIds!=null && keepIds.size()>0) {
+			if(ikm!=null) {
 				Attr idAttr = e.getAttributeNodeNS(null, idAttrName);
-				if(idAttr!=null) {
-					if(matchesPatternList(keepIds, idAttr.getValue())) {
-						keep = true;
-					}
-				}
-			}
-			
-			if(!keep && keepFiles!=null && keepFiles.size()>0) {
-				if(exportFileAttr!=null) {
-					if(matchesPatternList(keepFiles, exportFileAttr.getValue())) {
-						keep = true;
-					}
-				}
+				
+				ExportItem ei = new ExportItem(e.getTagName(), attrVal(idAttr, null), attrVal(exportFileAttr, null), attrVal(exportXDPIAttr, null), attrVal(exportYDPIAttr, null));
+				
+				keep = ikm.keepResult(ei) != ItemKeepMatch.KEEP_MATCH_NONE;
 			}
 
 			if(!keep) {
@@ -554,11 +606,11 @@ public class IEC {
 			
 			if(doList) {
 				System.out.println("List of exports:");
-				listExports(System.out, base, listFormat, keepIds, keepFiles, null);
+				listExports(System.out, base, listFormat, new KeepByPattern(keepIds, keepFiles), null);
 			}
 
 			if(doPrune) {
-				pruneExports(base, keepIds, keepFiles);
+				pruneExports(base, new KeepByPattern(keepIds, keepFiles));
 
 				ByteArrayOutputStream baos = new ByteArrayOutputStream();
 
