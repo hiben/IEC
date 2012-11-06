@@ -4,6 +4,7 @@
   <property name="src.dir" value="src"/>
   <property name="jar.file" value="${ant.project.name}.jar"/>
   <property name="main.class" value="iec.IEC"/>
+  <property name="main.class.ui" value="iec.IECUI"/>
   
 
   <target name="compile">
@@ -16,6 +17,15 @@
       <fileset dir="" includes="LICENSE"/>
       <manifest>
         <attribute name="Main-Class" value="${main.class}"/>
+      </manifest>
+    </jar>
+  </target>
+  
+  <target name="guijar" depends="compile">
+    <jar destfile="${jar.file}" basedir="${bin.dir}">
+      <fileset dir="" includes="LICENSE"/>
+      <manifest>
+        <attribute name="Main-Class" value="${main.class.ui}"/>
       </manifest>
     </jar>
   </target>

@@ -29,6 +29,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -379,6 +380,9 @@ public class IEC {
 
 	public static final String flagHelp = "help";
 	public static final String flagHelpS= "h";
+
+	public static final String flagGUI = "gui";
+	public static final String flagGUIS= "g";
 	
 	public static final String optFormat = "format";
 	public static final String optFormatS = "m";
@@ -427,6 +431,7 @@ public class IEC {
 				"  --keep-file|-f <fileglob>        add filename to preserve export def\n" +
 				"  --keep-file-regex|-F <filereg>   add regular-expression for file\n" +
 				"  --format <fmt>                   set list format\n" +
+				"  --gui|-g [<filename>]            start graphical interface with optional file\n" +
 				"\n" +
 				"Input and output can also be set by just giving the files in the right order.\n" +
 				"\n" +
@@ -516,6 +521,14 @@ public class IEC {
 				if(isOpt(opt, shortopt, flagHelp, flagHelpS)) {
 					help();
 					continue;
+				}
+				if(isOpt(opt, shortopt, flagGUI, flagGUIS)) {
+					ArrayList<String> remArgs = new ArrayList<String>();
+					while(argi.hasNext()) {
+						remArgs.add(argi.next());
+					}
+					IECUI.main(remArgs.toArray(new String [remArgs.size()]));
+					return;
 				}
 				if(isOpt(opt, shortopt, flagList, flagListS)) {
 					doList = true;
