@@ -144,11 +144,11 @@ public class IEC {
 		}
 		
 		public boolean checksId() {
-			return keepIds!=null || keepIds.size()>0;
+			return keepIds!=null && keepIds.size()>0;
 		}
 		
 		public boolean checksFilename() {
-			return keepFiles!=null || keepFiles.size()>0;
+			return keepFiles!=null && keepFiles.size()>0;
 		}
 		
 		public int keepResult(ExportItem ei) {
